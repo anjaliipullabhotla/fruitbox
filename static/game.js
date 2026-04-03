@@ -94,16 +94,19 @@ function startGame() {
 
 function getEventPos(e) {
     const rect = canvas.getBoundingClientRect();
+    
+    // Check if it's a touch event or a mouse event
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
+    
     return {
         r: Math.floor(((clientY - rect.top) * scaleY) / CELL_SIZE),
         c: Math.floor(((clientX - rect.left) * scaleX) / CELL_SIZE)
     };
 }
-
 // 4. Socket Listeners
 socket.on('init', (data) => {
     board = data.board;
@@ -191,6 +194,41 @@ canvas.addEventListener('mousemove', e => {
 });
 
 canvas.addEventListener('mouseup', () => {
+    if (isDragging && currentSelection.length > 0) {
+        socket.emit('claim_box', { cells: currentSelection });
+    }
+    isDragging = false;
+    currentSelection = [];
+    draw();
+});
+
+canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault(); // Prevents the page from scrolling while playing
+    isDragging = true;
+    startCell = getEventPos(e);
+}, { passive: false });
+
+canvas.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    if (!isDragging) return;
+    
+    const endCell = getEventPos(e);
+    currentSelection = [];
+    
+    const rStart = Math.min(startCell.r, endCell.r);
+    const rEnd = Math.max(startCell.r, endCell.r);
+    const cStart = Math.min(startCell.c, endCell.c);
+    const cEnd = Math.max(startCell.c, endCell.c);
+
+    for (let r = rStart; r <= rEnd; r++) {
+        for (let c = cStart; c <= cEnd; c++) {
+            currentSelection.push([r, c]);
+        }
+    }
+    draw();
+}, { passive: false });
+
+canvas.addEventListener('touchend', function(e) {
     if (isDragging && currentSelection.length > 0) {
         socket.emit('claim_box', { cells: currentSelection });
     }
