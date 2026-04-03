@@ -15,11 +15,11 @@
         canvas {
             max-width: 95%; 
             height: auto;   
-            border: 3px solid #333;
-            border-radius: 8px;
             background: white;
             touch-action: none; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            border: 5px solid #1b5e20; /* Darker green frame */
+            border-radius: 8px;
         }
         .stats { 
             font-size: 22px; 
@@ -48,6 +48,13 @@
     <div class="stats">Waiting for players...</div>
 
     <canvas id="gameCanvas" width="765" height="450"></canvas>
+
+    <div class="timer-container" style="width: 765px; margin: 10px 0;">
+        <div id="timer-bar" style="width: 100%; height: 20px; background-color: #4CAF50; border-radius: 10px; transition: width 1s linear;"></div>
+        <div style="text-align: center; font-weight: bold; margin-top: 5px;">
+            Time Left: <span id="timer-text">2:00</span>
+        </div>
+    </div>
 
     <script src="/static/game.js"></script>
 </body>
