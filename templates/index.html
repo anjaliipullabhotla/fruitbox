@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Multiplayer Fruitbox</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        canvas {
+            max-width: 95%; /* Leaves a little padding on the sides */
+            height: auto;   /* Maintains 17:10 aspect ratio */
+            touch-action: none; /* CRITICAL: Prevents the page from scrolling while you drag apples */
+        }
+        .stats { font-family: sans-serif; font-size: 20px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="stats">
+        P1 (You): <span id="p1-score">0</span> | P2: <span id="p2-score">0</span>
+    </div>
+    <canvas id="gameCanvas" width="765" height="450"></canvas>
+    <script src="/static/game.js"></script>
+</body>
+</html>
