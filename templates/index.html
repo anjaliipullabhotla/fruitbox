@@ -13,7 +13,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         canvas {
-            max-width: 95%; 
+            max-width: 95vw; 
             height: auto;   
             background: white;
             touch-action: none; 
@@ -22,9 +22,15 @@
             border-radius: 8px;
         }
         .stats { 
-            font-size: 22px; 
-            margin: 20px; 
-            font-weight: bold;
+            width: 95vw;
+            max-width: 765px;
+            margin: 10px auto;
+            display: flex;
+            flex-wrap: wrap; /* Allows player names to wrap to a second line if too many */
+            justify-content: center;
+            gap: 10px;
+            font-size: 14px; /* Slightly smaller for mobile */     
+            font-weight: bold;       
             color: #444;
         }
         #login-overlay {
