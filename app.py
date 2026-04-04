@@ -108,8 +108,6 @@ def on_join(data):
     rooms[room]['players'][sid] = name
     if rooms[room]['status'] != 'active':
         rooms[room]['active_players'][sid] = {'name': name, 'score': 0}
-    join_room(room, sid=sid)  
-    
     broadcast_lobby_update(room)
 
 
@@ -126,7 +124,10 @@ def handle_start(data):
 
         active_room_name = f"{room_id}_active"
         for player_sid in rooms[room_id]['active_players']:
-            join_room(active_room_name, sid=player_sid)
+            try:
+                join_room(active_room_name, sid=player_sid)
+            except KeyError:
+                print(f"Failed to join room: Session {player_sid} no longer exists.")
         emit('game_start_signal', {
             'board': rooms[room_id]['board'],
             'players': rooms[room_id]['active_players'],
