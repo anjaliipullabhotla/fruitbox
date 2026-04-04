@@ -106,6 +106,7 @@ def on_join(data):
         }, to=sid)
 
     rooms[room]['players'][sid] = name
+    join_room(room)
     if rooms[room]['status'] != 'active':
         rooms[room]['active_players'][sid] = {'name': name, 'score': 0}
     broadcast_lobby_update(room)
@@ -122,17 +123,11 @@ def handle_start(data):
         for sid, name in rooms[room_id]['players'].items():
             rooms[room_id]['active_players'][sid] = {'name': name, 'score': 0}
 
-        active_room_name = f"{room_id}_active"
-        for player_sid in rooms[room_id]['active_players']:
-            try:
-                join_room(active_room_name, sid=player_sid)
-            except KeyError:
-                print(f"Failed to join room: Session {player_sid} no longer exists.")
         emit('game_start_signal', {
             'board': rooms[room_id]['board'],
             'players': rooms[room_id]['active_players'],
             'start_time': rooms[room_id]['start_time']
-        }, to=active_room_name)
+        }, to=room_id)
         socketio.start_background_task(game_timer_task, room_id)
 
 
@@ -165,6 +160,7 @@ def handle_claim(data):
                 'board': rooms[room_id]['board'],
                 'players': rooms[room_id]['active_players']
             }, to=room_id)
+
 
 
 def game_timer_task(room_id):
@@ -210,7 +206,6 @@ def handle_reset(data):
                 'name': player_name, 
                 'score': 0
             }
-            join_room(f"{room_id}_active", sid=sid)
             emit('player_joined_next_round', {
                 'count': len(rooms[room_id]['active_players'])
             }, to=room_id)
@@ -220,4 +215,4 @@ def handle_reset(data):
 if __name__ == '__main__':
     # Port 5001 avoids macOS AirPlay 403 issues
     port = int(os.environ.get('PORT', 5001))
-    socketio.run(app, host='127.0.0.1', port=port, debug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True)
