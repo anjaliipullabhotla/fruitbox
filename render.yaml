@@ -1,1 +1,1 @@
-gunicorn -w 1 --threads 100 -b 127.0.0.1:5000 app:app
+gunicorn -k eventlet -w 1 --bind 0.0.0.0:$PORT app:app

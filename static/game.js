@@ -17,6 +17,7 @@ const appleImg = new Image();
 let gameInterval = null;
 let isCreating = false;
 let mySid = "";
+let isSpectator = false;
 
 
 socket.on('connect', () => {
@@ -195,7 +196,6 @@ function updateTimerUI(secondsLeft) {
     let sec = secondsLeft % 60;
     timerText.textContent = `${min}:${sec < 10 ? '0' : ''}${sec}`;
     let percentage = (secondsLeft / TOTAL_TIME) * 100;
-    console.log(percentage);
     timerBar.style.width = Math.max(0, percentage) + "%";
     if (secondsLeft > 60) {
         timerBar.style.backgroundColor = "#4CAF50"; // Green
@@ -222,9 +222,30 @@ function sendStartSignal() {
     }
 }
 
+function showSpectatorError() {
+    const alertBox = document.getElementById('interaction-alert');
+    if (alertBox) {
+        alertBox.innerText = "⚠️ You are spectating - wait for next round!";
+        alertBox.style.color = "red";
+    }
+}
+
 
 socket.on('game_start_signal', (data) => {
+    isSpectator = data.is_spectator || false;
+
+    const alertBox = document.getElementById('interaction-alert');
+    if (alertBox) {
+        if (isSpectator) {
+            alertBox.innerText = "👀 You are spectating - wait for next round to play!";
+            alertBox.style.color = "#666"; // Gray for info, red for errors
+        } else {
+            alertBox.innerText = ""; // Clear it for active players
+            alertBox.style.display = 'none';
+        }
+    }
     console.log("Game starting!");
+    document.getElementById('login-overlay').style.display = 'none';
     document.getElementById('lobby-overlay').style.display = 'none';
     document.getElementById('game-container').style.display = 'block';
 
@@ -258,6 +279,7 @@ socket.on('update_lobby_list', (data) => {
     console.log(data)
     roomCode = data.room;
     document.getElementById('display-room-code').innerText = data.room;
+    document.getElementById('game-room-code').innerText = data.room;
 
     const list = document.getElementById('player-names-list');
     list.innerHTML = "";
@@ -280,11 +302,19 @@ socket.on('update_lobby_list', (data) => {
         document.getElementById('host-controls').style.display = 'none';
         document.getElementById('guest-msg').style.display = 'block';
     }
-    const gameOverOverlay = document.getElementById('game-over-overlay');
-    if (gameOverOverlay && window.getComputedStyle(gameOverOverlay).display === 'none') {
-        const lobby = document.getElementById('lobby-overlay');
+    const lobby = document.getElementById('lobby-overlay');
+    const login = document.getElementById('login-overlay');
+    const gameContainer = document.getElementById('game-container');
+    const gameOver = document.getElementById('game-over-overlay');
+    const isGameActive = gameContainer && gameContainer.style.display === 'block';
+    const isGameOver = gameOver && window.getComputedStyle(gameOver).display !== 'none';
+    if (isGameActive) {
+        if (lobby) lobby.style.display = 'none';
+        if (login) login.style.display = 'none';
+    } else if (isGameOver) {
+        if (lobby) lobby.style.display = 'none';
+    } else {
         if (lobby) lobby.style.display = 'flex';
-        const login = document.getElementById('login-overlay');
         if (login) login.style.display = 'none';
     }
 });
@@ -307,11 +337,13 @@ socket.on('error_message', (data) => {
     const err = document.getElementById('error-display');
     err.innerText = data.msg;
     err.style.display = 'block';
-    resetMenu();
 });
 
 
-canvas.addEventListener('mousedown', e => { isDragging = true; startCell = getEventPos(e); });
+canvas.addEventListener('mousedown', e => { 
+    isDragging = true; 
+    startCell = getEventPos(e); 
+});
 canvas.addEventListener('mousemove', e => {
     if (!isDragging) return;
     const endCell = getEventPos(e);
@@ -330,7 +362,11 @@ canvas.addEventListener('mousemove', e => {
 
 canvas.addEventListener('mouseup', () => {
     if (isDragging && currentSelection.length > 0) {
-        socket.emit('claim_box', { cells: currentSelection });
+        if (isSpectator) {
+            showSpectatorError()
+        } else {
+            socket.emit('claim_box', { cells: currentSelection });
+        } 
     }
     isDragging = false;
     currentSelection = [];
@@ -365,7 +401,11 @@ canvas.addEventListener('touchmove', function(e) {
 
 canvas.addEventListener('touchend', function(e) {
     if (isDragging && currentSelection.length > 0) {
-        socket.emit('claim_box', { cells: currentSelection });
+        if (isSpectator) {
+            showSpectatorError()
+        } else {
+            socket.emit('claim_box', { cells: currentSelection });
+        }
     }
     isDragging = false;
     currentSelection = [];
@@ -375,14 +415,12 @@ canvas.addEventListener('touchend', function(e) {
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
         console.log("Tab regained focus. Requesting time sync...");
-        // Ask the server for the absolute truth immediately
         socket.emit('request_time_sync', { room: roomCode });
     }
 });
 
-// Add this listener to handle the immediate response
 socket.on('manual_time_update', (data) => {
-    updateTimerUI(data.remaining); // Re-use your formatting logic
+    updateTimerUI(data.remaining);
 });
 
 appleImg.onload = () => {

@@ -123,6 +123,17 @@
             width: 100%;
             margin-top: 0; /* Gap handles this now */
         }
+
+        #interaction-alert {
+            width: 100%;
+            text-align: center;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 8px 0;
+            min-height: 20px; /* Keeps the layout stable when empty */
+            background-color: #fcfcfc;
+            border-bottom: 1px solid #eee;
+        }
     
         /* 5. Game Canvas & Stats */
         canvas {
@@ -137,18 +148,21 @@
             margin: 20px auto;
         }
     
-        .stats { 
-            width: 95vw;
-            max-width: 765px;
-            margin: 10px auto;
+        .stats {
             display: flex;
-            justify-content: center;
-            gap: 20px;
-            font-size: 18px;      
-            font-weight: bold;       
-            color: #000000;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #ddd;
         }
 
+        .room-info {
+            font-family: 'Courier New', Courier, monospace; /* Looks like a "code" */
+            background: #eee;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
         #timer-box {
             width: 250px;
             height: 30px;
@@ -292,7 +306,11 @@
         </div>
 
         <div id="game-container" style="display: none;">
+            <div id="interaction-alert" style="color: red; font-weight: bold; min-height: 20px;"></div>
             <div class="stats">
+                <div class="room-info">
+                    Room: <span id="game-room-code" style="font-weight: bold; color: #555;">----</span>
+                </div>
                 <div id="timer-box">
                     <div id="timer-bar"></div>
                     <span id="timer-text">2:00</span>
@@ -301,6 +319,7 @@
             </div>
             <canvas id="gameCanvas" width="765" height="450"></canvas>
         </div>
+
 
         <div id="game-over-overlay" class="overlay" style="display: none;">
             <h1>🏆 Game Over</h1>

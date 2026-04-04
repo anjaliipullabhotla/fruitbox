@@ -30,6 +30,22 @@ def check_valid_moves(board):
                     return True
     return False 
 
+def broadcast_lobby_update(room_id):
+    room_data = rooms.get(room_id)
+    if not room_data:
+        return
+    all_players = list(room_data['players'].values())
+    active_names = [p['name'] for p in room_data['active_players'].values()]
+    for player_sid in room_data['players']:
+        is_host = (player_sid == room_data['host_sid'])
+        socketio.emit('update_lobby_list', {
+            'room': room_id,
+            'players': all_players,
+            'active_names': active_names,
+            'is_host': is_host
+        }, to=player_sid)
+
+
 def end_game(room_id, reason):
     if room_id not in rooms:
         return
@@ -49,24 +65,10 @@ def end_game(room_id, reason):
     }, to=room_id)
     broadcast_lobby_update(room_id)
 
+
 @app.route('/')
 def index():
     return render_template('index.html')
-
-def broadcast_lobby_update(room_id):
-    room_data = rooms.get(room_id)
-    if not room_data:
-        return
-    all_players = list(room_data['players'].values())
-    active_names = [p['name'] for p in room_data['active_players'].values()]
-    for player_sid in room_data['players']:
-        is_host = (player_sid == room_data['host_sid'])
-        socketio.emit('update_lobby_list', {
-            'room': room_id,
-            'players': all_players,
-            'active_names': active_names,
-            'is_host': is_host
-        }, to=player_sid)
 
 
 @socketio.on('join_game')
@@ -90,20 +92,22 @@ def on_join(data):
     elif mode == 'join' and room not in rooms:
         emit('error_message', {'msg': 'Room not found!'}, to=sid)
         return
-    elif rooms[room]['status'] in ['active', 'restarting']:
-        emit('error_message', {'msg': 'Game already in progress! Please wait for the next round.'}, to=sid)
-        return
-
-    existing_names = rooms[room]['players'].values()
-    if name in existing_names:
+    elif name in rooms[room]['players'].values():
         emit('error_message', {'msg': 'Username already taken. Please choose a different name.'}, to=sid)
         return
+    elif rooms[room]['status'] in ['active', 'restarting']:
+        emit('error_message', {'msg': 'Game already in progress! You are spectating.'}, to=sid)
+        emit('game_start_signal', {
+            'board': rooms[room]['board'],
+            'players': rooms[room]['active_players'],
+            'start_time': rooms[room]['start_time'],
+            'is_spectator': True,
+        }, to=sid)
 
     rooms[room]['players'][sid] = name
+    if rooms[room]['status'] != 'active':
+        rooms[room]['active_players'][sid] = {'name': name, 'score': 0}
     join_room(room, sid=sid)  
-
-    if rooms[room]['status'] == 'waiting':
-        rooms[room]['active_players'][sid] = {"name": name, "score": 0}
     
     broadcast_lobby_update(room)
 
@@ -137,6 +141,9 @@ def handle_claim(data):
     room_id = next((r for r, d in rooms.items() if sid in d['players']), None)
     
     if room_id and rooms[room_id]['status'] == 'active':
+        if sid not in rooms[room_id]['active_players']:
+            print(f"Unauthorized claim attempt by spectator: {sid}")
+            return
         game = rooms[room_id]
 
         if game['start_time'] is None: return
@@ -155,7 +162,7 @@ def handle_claim(data):
             emit('update', {
                 'board': rooms[room_id]['board'],
                 'players': rooms[room_id]['active_players']
-            }, to=f"{room_id}_active")
+            }, to=room_id)
 
 
 def game_timer_task(room_id):
@@ -166,7 +173,7 @@ def game_timer_task(room_id):
         game = rooms[room_id]
         elapsed = time.time() - game['start_time'] 
         remaining = max(0, int(120 - elapsed))
-        socketio.emit('timer_sync', {'remaining': remaining}, to=f"{room_id}_active")       
+        socketio.emit('timer_sync', {'remaining': remaining}, to=room_id)       
         if elapsed >= 120:
             end_game(room_id, "Time's up!")
             break
