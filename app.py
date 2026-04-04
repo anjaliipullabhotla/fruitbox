@@ -1,3 +1,4 @@
+import os
 import time
 import random
 from flask import Flask, render_template, request
@@ -217,4 +218,5 @@ def handle_reset(data):
 
 if __name__ == '__main__':
     # Port 5001 avoids macOS AirPlay 403 issues
-    socketio.run(app, host='127.0.0.1', port=5001, debug=True)
+    port = int(os.environ.get('PORT', 5001))
+    socketio.run(app, host='127.0.0.1', port=port, debug=True)
