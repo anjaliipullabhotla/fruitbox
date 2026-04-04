@@ -1,4 +1,3 @@
-// 1. Connection Setup
 const socket = io({
     transports: ["polling", "websocket"]
 });
@@ -7,26 +6,73 @@ const ctx = canvas.getContext('2d');
 const CELL_SIZE = 45; 
 const TOTAL_TIME = 120;
 
-// 2. Global State
 let board = [];
+let roomCode = "";
 let countdownInterval = null;
 let isDragging = false;
 let startCell = null;
 let currentSelection = [];
 let imageLoaded = false;
 const appleImg = new Image();
+let gameInterval = null;
+let isCreating = false;
+let mySid = "";
 
-// 3. Define Functions FIRST (So they are ready when called)
 
-function updateScoreboard(playerData) {
-    const statsDiv = document.querySelector('.stats');
-    if (!statsDiv) return;
-    let html = "";
-    for (let sid in playerData) {
-        const p = playerData[sid];
-        html += `<strong>${p.name}:</strong> ${p.score} | `;
+socket.on('connect', () => {
+    mySid = socket.id; 
+    console.log("Connected with SID:", mySid);
+});
+
+function showMenu(mode) {
+    const name = document.getElementById('username-input').value.trim();
+    if (!name) return alert("Please enter your name first!");
+
+    document.getElementById('initial-buttons').style.display = 'none';
+    document.getElementById('room-controls').style.display = 'block';
+
+    if (mode === 'create') {
+        isCreating = true;
+        const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
+        document.getElementById('room-input').value = randomCode;
+        document.getElementById('room-input').readOnly = true; // Host shouldn't change it
+        document.getElementById('action-button').innerText = "Create & Wait";
+    } else {
+        isCreating = false;
+        document.getElementById('room-input').value = "";
+        document.getElementById('room-input').readOnly = false;
+        document.getElementById('action-button').innerText = "Join Game";
     }
-    statsDiv.innerHTML = html.slice(0, -3);
+}
+
+function finalizeJoin() {
+    const name = document.getElementById('username-input').value;
+    roomCode = document.getElementById('room-input').value;
+    const mode = isCreating ? 'create' : 'join'; 
+    socket.emit('join_game', { name: name, room: roomCode, mode: mode });
+}
+
+function resetMenu() {
+    document.getElementById('initial-buttons').style.display = 'block';
+    document.getElementById('room-controls').style.display = 'none';
+}
+
+
+function updateScoreBoard(players) {
+    const scoreBoard = document.getElementById('score-board');
+    if (!scoreBoard) return;
+
+    const scoresHtml = Object.entries(players)
+        .map(([sid, p]) => {
+            const isMe = (sid === mySid);
+            const displayName = isMe ? `${p.name} (You)` : p.name;
+            const activeClass = isMe ? 'style="color: #2e7d32; font-weight: 800;"' : '';
+
+            return `<span ${activeClass}>${displayName}: <b>${p.score}</b></span>`;
+        })
+        .join(" | ");
+
+    scoreBoard.innerHTML = scoresHtml;
 }
 
 function draw() {
@@ -47,7 +93,6 @@ function draw() {
             if (imageLoaded) {
                 ctx.drawImage(appleImg, centerX - 19, centerY - 19, 38, 38);
             } else {
-                // Fallback circle if image fails
                 ctx.fillStyle = "#ff4d4d";
                 ctx.beginPath(); ctx.arc(centerX, centerY, 15, 0, Math.PI*2); ctx.fill();
             }
@@ -66,7 +111,6 @@ function draw() {
         ctx.strokeStyle = "rgba(0, 123, 255, 0.8)"; 
         ctx.lineWidth = 3;
         
-        // Calculate the bounding box of the selection
         const rMin = Math.min(...currentSelection.map(c => c[0])), rMax = Math.max(...currentSelection.map(c => c[0]));
         const cMin = Math.min(...currentSelection.map(c => c[1])), cMax = Math.max(...currentSelection.map(c => c[1]));
         
@@ -80,22 +124,29 @@ function draw() {
     }
 }
 
+
 function startGame() {
     const name = document.getElementById('username-input').value.trim();
     const room = document.getElementById('room-input').value.trim();
-    
     if (!name || !room) return alert("Enter both name and room!");
-    
     document.getElementById('login-overlay').style.display = 'none';
-    
-    // Use a new event name to signal joining a specific room
     socket.emit('join_game', { name: name, room: room });
+}
+
+
+function requestReset() {
+    socket.emit('request_reset', { room: roomCode });
+    document.getElementById('game-over-overlay').style.display = 'none';
+    document.getElementById('game-container').style.display = 'none';
+    const lobby = document.getElementById('lobby-overlay');
+    if (lobby) {
+        lobby.style.display = 'flex';
+    }
 }
 
 function getEventPos(e) {
     const rect = canvas.getBoundingClientRect();
-    
-    // Check if it's a touch event or a mouse event
+
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     
@@ -107,75 +158,166 @@ function getEventPos(e) {
         c: Math.floor(((clientX - rect.left) * scaleX) / CELL_SIZE)
     };
 }
-// 4. Socket Listeners
-socket.on('init', (data) => {
-    board = data.board;
-    updateScoreboard(data.players);
-    startTimer(120); // 120 seconds
-    draw();
-});
 
-function startTimer() {
-    if (countdownInterval) clearInterval(countdownInterval);
+function startTimer(duration) {
+    let timer = Math.floor(duration); 
+    const totalTime = 120;
     
-    let timeLeft = TOTAL_TIME;
     const timerBar = document.getElementById('timer-bar');
     const timerText = document.getElementById('timer-text');
 
-    countdownInterval = setInterval(() => {
-        timeLeft--;
-        
-        // 1. Update the Text (2:00 format)
-        const mins = Math.floor(timeLeft / 60);
-        const secs = timeLeft % 60;
-        timerText.innerText = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-        
-        // 2. Calculate Percentage and Update Bar Width
-        const percentage = (timeLeft / TOTAL_TIME) * 100;
-        timerBar.style.width = percentage + "%";
+    if (gameInterval) {
+        clearInterval(gameInterval);
+        gameInterval = null; 
+    }
+    
+    updateTimerUI(timer, totalTime);
+    gameInterval = setInterval(() => {
+        timer--;
 
-        // 3. Optional: Change color as time gets low (Visual Cues)
-        if (percentage < 25) {
-            timerBar.style.backgroundColor = "#ff5252"; // Red
-        } else if (percentage < 50) {
-            timerBar.style.backgroundColor = "#ffa726"; // Orange
+        if (timer < 0) {
+            clearInterval(gameInterval);
+            gameInterval = null;
+            return;
         }
 
-        if (timeLeft <= 0) {
-            clearInterval(countdownInterval);
-            // Trigger your game over logic here
-        }
-    }, 1000);
+        updateTimerUI(timer, totalTime);
+    }, 1000); 
 }
+
+
+function updateTimerUI(secondsLeft, total) {
+    const timerBar = document.getElementById('timer-bar');
+    const timerText = document.getElementById('timer-text');
+    if (!timerBar || !timerText) return;
+
+    let min = Math.floor(secondsLeft / 60);
+    let sec = secondsLeft % 60;
+    timerText.textContent = `${min}:${sec < 10 ? '0' : ''}${sec}`;
+    let percentage = (secondsLeft / total) * 100;
+    timerBar.style.width = Math.max(0, percentage) + "%";
+    if (secondsLeft > 60) {
+        timerBar.style.backgroundColor = "#4CAF50"; // Green
+    } 
+    else if (secondsLeft <= 60 && secondsLeft > 20) {
+        timerBar.style.backgroundColor = "#FF9800"; // Orange
+    } 
+    else {
+        timerBar.style.backgroundColor = "#f44336"; // Red
+    }    
+    if (secondsLeft <= 10) {
+        timerBar.classList.add('pulse-animation');
+    } else {
+        timerBar.classList.remove('pulse-animation');
+    }
+}
+
+
+function sendStartSignal() {
+    if (roomCode) {
+        socket.emit('start_game_request', { room: roomCode });
+    } else {
+        console.error("No room code found to start game.");
+    }
+}
+
+
+socket.on('game_start_signal', (data) => {
+    console.log("Game starting!");
+    document.getElementById('lobby-overlay').style.display = 'none';
+    document.getElementById('game-container').style.display = 'block';
+
+    board = data.board;
+    players = data.players; 
+    updateScoreBoard(data.players); 
+    draw();
+});
+
 
 socket.on('update', (data) => {
     board = data.board;
-    updateScoreboard(data.players);
+    updateScoreBoard(data.players);
     draw();
 });
+
+
+socket.on('show_winner_screen', (data) => {
+    if (gameInterval) clearInterval(gameInterval);
+
+    document.getElementById('game-container').style.display = 'none';
+    const overlay = document.getElementById('game-over-overlay');
+    if (overlay) overlay.style.display = 'flex';
+
+    document.getElementById('winner-name').innerText = `Winner: ${data.winner_name}!`;
+    document.getElementById('final-score-text').innerText = `Final Score: ${data.winner_score}`;
+});
+
 
 socket.on('update_players', (playerData) => {
-    updateScoreboard(playerData);
+    updateScoreBoard(playerData);
 });
 
-socket.on('game_over', (data) => {
-    alert(data.reason);
-    
-    // Stop the timer
-    if (countdownInterval) clearInterval(countdownInterval);
-    
-    // Reset local game state
-    board = [];
-    currentSelection = [];
-    draw();
+socket.on('update_lobby_list', (data) => {
+    console.log(data)
+    roomCode = data.room;
+    document.getElementById('display-room-code').innerText = data.room;
 
-    // Show the login screen again (the inputs will still have the old text)
-    document.getElementById('login-overlay').style.display = 'flex';
-    document.getElementById('login-overlay').querySelector('h2').innerText = "Game Over! Play again?";
+    const list = document.getElementById('player-names-list');
+    list.innerHTML = "";
+    data.players.forEach(playerName => {
+        const li = document.createElement('li');
+        li.innerText = "🍎 " + playerName;
+        console.log(data.active_names, playerName)
+        if (data.active_names && data.active_names.includes(playerName)) {
+            li.classList.add('player-ready'); // Uses the CSS below
+            li.innerText += " (READY) ✓";
+        }
+        list.appendChild(li);
+    });
+    if (data.is_host === true) {
+        console.log("I am the host. Showing start button.");
+        document.getElementById('host-controls').style.display = 'block';
+        document.getElementById('guest-msg').style.display = 'none';
+    } else {
+        console.log("I am a guest. Showing waiting message.");
+        document.getElementById('host-controls').style.display = 'none';
+        document.getElementById('guest-msg').style.display = 'block';
+    }
+    const gameOverOverlay = document.getElementById('game-over-overlay');
+    if (gameOverOverlay && gameOverOverlay.style.display === 'none') {
+        const lobby = document.getElementById('lobby-overlay');
+        if (lobby) lobby.style.display = 'flex';
+        const login = document.getElementById('login-overlay');
+        if (login) login.style.display = 'none';
+    }
 });
 
 
-// 5. Input Listeners
+socket.on('player_joined_next_round', (data) => {
+    const readySpan = document.getElementById('ready-count');
+    if (readySpan) {
+        readySpan.innerText = `(${data.count} Ready)`;
+    }
+});
+
+
+socket.on('timer_sync', (data) => {
+    const timeLeft = data.remaining;
+    updateTimerUI(timeLeft); 
+    if (Math.abs(localTime - timeLeft) > 1) {
+        localTime = timeLeft;
+    }
+});
+
+
+socket.on('error_message', (data) => {
+    const err = document.getElementById('error-display');
+    err.innerText = data.msg;
+    err.style.display = 'block';
+    resetMenu();
+});
+
+
 canvas.addEventListener('mousedown', e => { isDragging = true; startCell = getEventPos(e); });
 canvas.addEventListener('mousemove', e => {
     if (!isDragging) return;
@@ -237,7 +379,19 @@ canvas.addEventListener('touchend', function(e) {
     draw();
 });
 
-// 6. START Execution (Image loading at the very end)
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        console.log("Tab regained focus. Requesting time sync...");
+        // Ask the server for the absolute truth immediately
+        socket.emit('request_time_sync', { room: roomCode });
+    }
+});
+
+// Add this listener to handle the immediate response
+socket.on('manual_time_update', (data) => {
+    updateTimerUI(data.remaining); // Re-use your formatting logic
+});
+
 appleImg.onload = () => {
     imageLoaded = true;
     draw();
