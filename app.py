@@ -57,7 +57,7 @@ def broadcast_lobby_update(room_id):
     room_data = rooms.get(room_id)
     if not room_data:
         return
-    all_players = [p['name'] for p in room_data['players'].values()]
+    all_players = list(room_data['players'].values())
     active_names = [p['name'] for p in room_data['active_players'].values()]
     for player_sid in room_data['players']:
         is_host = (player_sid == room_data['host_sid'])
@@ -94,12 +94,12 @@ def on_join(data):
         emit('error_message', {'msg': 'Game already in progress! Please wait for the next round.'}, to=sid)
         return
 
-    existing_names = [p['name'] for p in rooms[room]['players'].values()]
+    existing_names = rooms[room]['players'].values()
     if name in existing_names:
         emit('error_message', {'msg': 'Username already taken. Please choose a different name.'}, to=sid)
         return
 
-    rooms[room]['players'][sid] = {"name": name, "score": 0}
+    rooms[room]['players'][sid] = name
     join_room(room, sid=sid)  
 
     if rooms[room]['status'] == 'waiting':
@@ -116,7 +116,8 @@ def handle_start(data):
     if room_id in rooms and rooms[room_id]['host_sid'] == sid:
         rooms[room_id]['status'] = 'active'
         rooms[room_id]['start_time'] = time.time()
-        rooms[room_id]['active_players'] = rooms[room_id]['players'].copy()
+        for sid, name in rooms[room_id]['players'].items():
+            rooms[room_id]['active_players'][sid] = {'name': name, 'score': 0}
 
         active_room_name = f"{room_id}_active"
         for player_sid in rooms[room_id]['active_players']:
@@ -194,10 +195,10 @@ def handle_reset(data):
             rooms[room_id]['active_players'] = {}
             
 
-        player_data = rooms[room_id]['players'].get(sid)
-        if player_data:
+        player_name = rooms[room_id]['players'].get(sid)
+        if player_name:
             rooms[room_id]['active_players'][sid] = {
-                'name': player_data['name'], 
+                'name': player_name, 
                 'score': 0
             }
             join_room(f"{room_id}_active", sid=sid)

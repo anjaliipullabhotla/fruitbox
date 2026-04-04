@@ -186,7 +186,7 @@ function startTimer(duration) {
 }
 
 
-function updateTimerUI(secondsLeft, total) {
+function updateTimerUI(secondsLeft) {
     const timerBar = document.getElementById('timer-bar');
     const timerText = document.getElementById('timer-text');
     if (!timerBar || !timerText) return;
@@ -194,7 +194,8 @@ function updateTimerUI(secondsLeft, total) {
     let min = Math.floor(secondsLeft / 60);
     let sec = secondsLeft % 60;
     timerText.textContent = `${min}:${sec < 10 ? '0' : ''}${sec}`;
-    let percentage = (secondsLeft / total) * 100;
+    let percentage = (secondsLeft / TOTAL_TIME) * 100;
+    console.log(percentage);
     timerBar.style.width = Math.max(0, percentage) + "%";
     if (secondsLeft > 60) {
         timerBar.style.backgroundColor = "#4CAF50"; // Green
@@ -253,10 +254,6 @@ socket.on('show_winner_screen', (data) => {
 });
 
 
-socket.on('update_players', (playerData) => {
-    updateScoreBoard(playerData);
-});
-
 socket.on('update_lobby_list', (data) => {
     console.log(data)
     roomCode = data.room;
@@ -284,7 +281,7 @@ socket.on('update_lobby_list', (data) => {
         document.getElementById('guest-msg').style.display = 'block';
     }
     const gameOverOverlay = document.getElementById('game-over-overlay');
-    if (gameOverOverlay && gameOverOverlay.style.display === 'none') {
+    if (gameOverOverlay && window.getComputedStyle(gameOverOverlay).display === 'none') {
         const lobby = document.getElementById('lobby-overlay');
         if (lobby) lobby.style.display = 'flex';
         const login = document.getElementById('login-overlay');
@@ -302,11 +299,7 @@ socket.on('player_joined_next_round', (data) => {
 
 
 socket.on('timer_sync', (data) => {
-    const timeLeft = data.remaining;
-    updateTimerUI(timeLeft); 
-    if (Math.abs(localTime - timeLeft) > 1) {
-        localTime = timeLeft;
-    }
+    updateTimerUI(data.remaining); 
 });
 
 

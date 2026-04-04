@@ -163,7 +163,7 @@
             width: 100%; /* Starts full */
             height: 100%;
             background-color: #4CAF50; /* Green filling */
-            transition: width 1s linear; /* Smooth shrinking animation */
+            transition: width 1.1s linear; /* Smooth shrinking animation */
         }
 
         #timer-text {
@@ -270,12 +270,11 @@
         </div>
 
         <div id="lobby-overlay" class="overlay" style="display: none;">
-            <div id="lobby-overlay" class="overlay" style="display: none;">
-                <h2>
-                    Room: <span id="display-room-code">----</span> 
-                    <span id="ready-count" style="font-size: 0.8em; color: #666;"></span>
-                </h2>
-                </div>
+            <h2>
+                Room: <span id="display-room-code">----</span> 
+                <span id="ready-count" style="font-size: 0.8em; color: #666;"></span>
+            </h2>
+
             <div id="player-list-container">
                 <h3>Players Joined:</h3>
                 <ul id="player-names-list"></ul>
