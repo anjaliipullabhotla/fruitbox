@@ -327,13 +327,15 @@
 
         <div id="game-over-overlay" class="overlay" style="display: none;">
             <h1>🏆 Game Over</h1>
+            <div class="room-info" style="margin-bottom: 10px;">
+                Room: <span id="game-over-room-code" style="font-weight: bold; color: #555;">----</span>
+            </div>
             <h2 id="winner-name">----</h2>
             <p id="final-score-text">Score: 0</p>
             
             <div id="play-again-controls" style="width: 100%;">
                 <button onclick="requestReset()" class="btn-start">Play Again</button>
-                <button onclick="location.reload()" style="background: #6c757d;">Leave Room</button>
-            </div>
+                <button onclick="leaveRoom()" style="background: #6c757d;">Leave Room</button>            </div>
         </div>
     </div>
 

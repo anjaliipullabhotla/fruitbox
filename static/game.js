@@ -230,6 +230,12 @@ function showSpectatorError() {
     }
 }
 
+function leaveRoom() {
+    const roomID = document.getElementById('display-room-code').innerText;
+    socket.emit('leave_game_request', { room: roomID });
+    location.reload();
+}
+
 
 socket.on('game_start_signal', (data) => {
     isSpectator = data.is_spectator || false;
@@ -269,6 +275,8 @@ socket.on('show_winner_screen', (data) => {
     document.getElementById('game-container').style.display = 'none';
     const overlay = document.getElementById('game-over-overlay');
     if (overlay) overlay.style.display = 'flex';
+
+    document.getElementById('game-over-room-code').innerText = roomCode;
 
     document.getElementById('winner-name').innerText = `Winner: ${data.winner_name}!`;
     document.getElementById('final-score-text').innerText = `Final Score: ${data.winner_score}`;

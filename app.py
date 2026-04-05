@@ -15,6 +15,17 @@ rooms = {}
 def create_board():
     return [[random.randint(1, 9) for _ in range(COLS)] for _ in range(ROWS)]
 
+def initialize_room_state(host_sid):
+    return {
+        'board': create_board(),
+        'players': {}, 
+        'active_players': {}, 
+        'host_sid': host_sid,
+        'status': 'waiting',
+        'start_time': None
+    }
+
+
 def check_valid_moves(board):
     rows = len(board)
     cols = len(board[0])
@@ -82,14 +93,7 @@ def on_join(data):
     if not room: return
 
     if mode == 'create':
-        rooms[room] = {
-            'board': create_board(),
-            'players': {}, 
-            'active_players': {},
-            'host_sid': sid,
-            'status': 'waiting',
-            'start_time': None
-        }
+        rooms[room] = initialize_room_state(sid)
     elif mode == 'join' and room not in rooms:
         emit('error_message', {'msg': 'Room not found!'}, to=sid)
         return
@@ -104,6 +108,8 @@ def on_join(data):
             'start_time': rooms[room]['start_time'],
             'is_spectator': True,
         }, to=sid)
+    if rooms[room]['host_sid'] == None:
+        rooms[room]['host_sid'] = sid
 
     rooms[room]['players'][sid] = name
     join_room(room)
@@ -162,7 +168,6 @@ def handle_claim(data):
             }, to=room_id)
 
 
-
 def game_timer_task(room_id):
     print(f"Timer started for room: {room_id}")
     while room_id in rooms and rooms[room_id]['status'] == 'active':
@@ -185,21 +190,16 @@ def handle_time_sync_request(data):
         # Send ONLY to the person who just woke up
         emit('manual_time_update', {'remaining': remaining}, to=request.sid)
 
+
 @socketio.on('request_reset')
 def handle_reset(data):
     sid = request.sid
     room_id = data.get('room')
     
     if room_id in rooms:
-        if rooms[room_id]['status'] != 'restarting':
+        if rooms[room_id]['status'] == 'finished':
             print(f'Restarting game with host: {sid}')
-            rooms[room_id]['status'] = 'restarting'
-            rooms[room_id]['board'] = create_board()
-            rooms[room_id]['start_time'] = None
-            rooms[room_id]['host_sid'] = sid
-            rooms[room_id]['active_players'] = {}
-            
-
+            initialize_room_state(sid)
         player_name = rooms[room_id]['players'].get(sid)
         if player_name:
             rooms[room_id]['active_players'][sid] = {
@@ -210,6 +210,19 @@ def handle_reset(data):
                 'count': len(rooms[room_id]['active_players'])
             }, to=room_id)
         broadcast_lobby_update(room_id)
+
+
+@socketio.on('leave_game_request')
+def handle_leave(data):
+    sid = request.sid
+    room_id = data.get('room')
+    if room_id in rooms:
+        rooms[room_id]['players'].pop(sid, None)
+        rooms[room_id]['active_players'].pop(sid, None)
+        if rooms[room_id]['host_sid'] == sid:
+            rooms[room_id]['host_sid'] = None
+        broadcast_lobby_update(room_id)
+    print(f"Player {sid} explicitly left room {room_id}")
 
 
 if __name__ == '__main__':
