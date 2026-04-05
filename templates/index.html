@@ -18,7 +18,8 @@
         html, body {
             margin: 0; padding: 0;
             height: 100%; width: 100%;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
             background: var(--bg-main);
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: var(--text-dark);
@@ -42,7 +43,7 @@
             flex-grow: 1;
             width: 100%;
             background-color: var(--bg-wrapper);
-            display: flex;
+            display: block;
             justify-content: center;
             align-items: center;
             overflow-x: hidden;

@@ -124,6 +124,7 @@ def on_join(data):
     if rooms[room]['host_sid'] == None:
         rooms[room]['board'] = create_board()
         rooms[room]['host_sid'] = sid
+        rooms[room]['status'] = 'waiting'
 
     rooms[room]['players'][sid] = name
     join_room(room)
@@ -208,6 +209,8 @@ def handle_reset(data):
         if rooms[room_id]['status'] == 'finished':
             rooms[room_id]['board'] = create_board()
             rooms[room_id]['host_sid'] = sid
+            rooms[room_id]['active_players'] = {}
+            rooms[room_id]['status'] = 'waiting'
         player_name = rooms[room_id]['players'].get(sid)
         if player_name:
             rooms[room_id]['active_players'][sid] = {
