@@ -15,6 +15,7 @@ rooms = {}
 def create_board():
     return [[random.randint(1, 9) for _ in range(COLS)] for _ in range(ROWS)]
 
+
 def initialize_room_state(host_sid):
     return {
         'board': create_board(),
@@ -42,6 +43,7 @@ def check_valid_moves(board):
                     return True
     return False 
 
+
 def broadcast_lobby_update(room_id):
     room_data = rooms.get(room_id)
     if not room_data:
@@ -56,6 +58,18 @@ def broadcast_lobby_update(room_id):
             'active_names': active_names,
             'is_host': is_host
         }, to=player_sid)
+
+
+def emit_game_start(sid, room_id, is_spectator=False):
+    room_data = rooms.get(room_id)
+    if not room_data:
+        return
+    socketio.emit('game_start_signal', {
+        'board': room_data['board'],
+        'players': room_data['active_players'],
+        'start_time': room_data['start_time'],
+        'is_spectator': is_spectator
+    }, to=sid)
 
 
 def end_game(room_id, reason):
@@ -78,6 +92,10 @@ def end_game(room_id, reason):
     broadcast_lobby_update(room_id)
 
 
+def emit_error(sid, message):
+    socketio.emit('error_message', {'msg': message}, to=sid)
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -95,20 +113,16 @@ def on_join(data):
     if mode == 'create':
         rooms[room] = initialize_room_state(sid)
     elif mode == 'join' and room not in rooms:
-        emit('error_message', {'msg': 'Room not found!'}, to=sid)
+        emit_error(sid, 'Room not found!')
         return
     elif name in rooms[room]['players'].values():
-        emit('error_message', {'msg': 'Username already taken. Please choose a different name.'}, to=sid)
+        emit_error(sid, 'Username already taken. Please choose a different name.')
         return
     elif rooms[room]['status'] in ['active', 'restarting']:
-        emit('error_message', {'msg': 'Game already in progress! You are spectating.'}, to=sid)
-        emit('game_start_signal', {
-            'board': rooms[room]['board'],
-            'players': rooms[room]['active_players'],
-            'start_time': rooms[room]['start_time'],
-            'is_spectator': True,
-        }, to=sid)
+        emit_error(sid, 'Game already in progress! You are spectating.')
+        emit_game_start(sid, room, True)
     if rooms[room]['host_sid'] == None:
+        rooms[room]['board'] = create_board()
         rooms[room]['host_sid'] = sid
 
     rooms[room]['players'][sid] = name
@@ -129,19 +143,15 @@ def handle_start(data):
         for sid, name in rooms[room_id]['players'].items():
             rooms[room_id]['active_players'][sid] = {'name': name, 'score': 0}
 
-        emit('game_start_signal', {
-            'board': rooms[room_id]['board'],
-            'players': rooms[room_id]['active_players'],
-            'start_time': rooms[room_id]['start_time']
-        }, to=room_id)
+        emit_game_start(room_id, room_id)
         socketio.start_background_task(game_timer_task, room_id)
 
 
 @socketio.on('claim_box')
 def handle_claim(data):
     sid = request.sid
+    room_id = data.get('room')
     cells = data.get('cells', [])
-    room_id = next((r for r, d in rooms.items() if sid in d['players']), None)
     
     if room_id and rooms[room_id]['status'] == 'active':
         if sid not in rooms[room_id]['active_players']:
@@ -169,10 +179,8 @@ def handle_claim(data):
 
 
 def game_timer_task(room_id):
-    print(f"Timer started for room: {room_id}")
     while room_id in rooms and rooms[room_id]['status'] == 'active':
         socketio.sleep(1)
-        
         game = rooms[room_id]
         elapsed = time.time() - game['start_time'] 
         remaining = max(0, int(120 - elapsed))
@@ -181,13 +189,13 @@ def game_timer_task(room_id):
             end_game(room_id, "Time's up!")
             break
 
+
 @socketio.on('request_time_sync')
 def handle_time_sync_request(data):
     room_id = data.get('room')
     if room_id in rooms and rooms[room_id]['status'] == 'active':
         elapsed = time.time() - rooms[room_id]['start_time']
         remaining = max(0, int(120 - elapsed))
-        # Send ONLY to the person who just woke up
         emit('manual_time_update', {'remaining': remaining}, to=request.sid)
 
 
@@ -198,8 +206,8 @@ def handle_reset(data):
     
     if room_id in rooms:
         if rooms[room_id]['status'] == 'finished':
-            print(f'Restarting game with host: {sid}')
-            initialize_room_state(sid)
+            rooms[room_id]['board'] = create_board()
+            rooms[room_id]['host_sid'] = sid
         player_name = rooms[room_id]['players'].get(sid)
         if player_name:
             rooms[room_id]['active_players'][sid] = {

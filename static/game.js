@@ -3,77 +3,35 @@ const socket = io({
 });
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+
 const CELL_SIZE = 45; 
 const TOTAL_TIME = 120;
 
 let board = [];
 let roomCode = "";
-let countdownInterval = null;
+let mySid = "";
+let isSpectator = false;
+let isCreating = false;
+
+let gameInterval = null;
+
 let isDragging = false;
 let startCell = null;
 let currentSelection = [];
+
 let imageLoaded = false;
 const appleImg = new Image();
-let gameInterval = null;
-let isCreating = false;
-let mySid = "";
-let isSpectator = false;
+appleImg.onload = () => { imageLoaded = true; draw(); };
+appleImg.src = '/static/apple.png';
 
+/** Game UI **/
 
-socket.on('connect', () => {
-    mySid = socket.id; 
-    console.log("Connected with SID:", mySid);
-});
-
-function showMenu(mode) {
-    const name = document.getElementById('username-input').value.trim();
-    if (!name) return alert("Please enter your name first!");
-
-    document.getElementById('initial-buttons').style.display = 'none';
-    document.getElementById('room-controls').style.display = 'block';
-
-    if (mode === 'create') {
-        isCreating = true;
-        const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
-        document.getElementById('room-input').value = randomCode;
-        document.getElementById('room-input').readOnly = true; // Host shouldn't change it
-        document.getElementById('action-button').innerText = "Create & Wait";
-    } else {
-        isCreating = false;
-        document.getElementById('room-input').value = "";
-        document.getElementById('room-input').readOnly = false;
-        document.getElementById('action-button').innerText = "Join Game";
-    }
-}
-
-function finalizeJoin() {
-    const name = document.getElementById('username-input').value;
-    roomCode = document.getElementById('room-input').value;
-    const mode = isCreating ? 'create' : 'join'; 
-    socket.emit('join_game', { name: name, room: roomCode, mode: mode });
-}
-
-function resetMenu() {
-    document.getElementById('initial-buttons').style.display = 'block';
-    document.getElementById('room-controls').style.display = 'none';
-}
-
-
-function updateScoreBoard(players) {
-    const scoreBoard = document.getElementById('score-board');
-    if (!scoreBoard) return;
-
-    const scoresHtml = Object.entries(players)
-        .map(([sid, p]) => {
-            const isMe = (sid === mySid);
-            const displayName = isMe ? `${p.name} (You)` : p.name;
-            const activeClass = isMe ? 'style="color: #2e7d32; font-weight: 800;"' : '';
-
-            return `<span ${activeClass}>${displayName}: <b>${p.score}</b></span>`;
-        })
-        .join(" | ");
-
-    scoreBoard.innerHTML = scoresHtml;
+function switchScreen(screenId) {
+    const screens = ['login-overlay', 'lobby-overlay', 'game-container', 'game-over-overlay'];
+    screens.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = (id === screenId) ? (id.includes('overlay') ? 'flex' : 'block') : 'none';
+    });
 }
 
 function draw() {
@@ -83,11 +41,9 @@ function draw() {
     ctx.fillStyle = "#98fb98"; 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    for (let r = 0; r < board.length; r++) {
-        for (let c = 0; c < board[r].length; c++) {
-            const val = board[r][c];
-            if (val === 0) continue; 
-
+    board.forEach((row, r) => {
+        row.forEach((val, c) => {
+            if (val === 0) return;
             const centerX = c * CELL_SIZE + CELL_SIZE / 2;
             const centerY = r * CELL_SIZE + CELL_SIZE / 2;
             
@@ -101,19 +57,19 @@ function draw() {
             ctx.fillStyle = "white";
             ctx.font = "bold 18px Arial";
             ctx.textAlign = "center";
-            ctx.textBaseline = "middle"; 
-            ctx.strokeStyle = "rgba(0,0,0,0.4)";
-            ctx.fillText(val, centerX - 1, centerY + 5); 
-        }
-    }
+            ctx.fillText(val, centerX - 1, centerY + 10);
+        });
+    });
 
     if (currentSelection.length > 0) {
         ctx.fillStyle = "rgba(0, 123, 255, 0.2)";
-        ctx.strokeStyle = "rgba(0, 123, 255, 0.8)"; 
+        ctx.strokeStyle = "rgba(0, 123, 255, 0.8)";
         ctx.lineWidth = 3;
         
-        const rMin = Math.min(...currentSelection.map(c => c[0])), rMax = Math.max(...currentSelection.map(c => c[0]));
-        const cMin = Math.min(...currentSelection.map(c => c[1])), cMax = Math.max(...currentSelection.map(c => c[1]));
+        const rMin = Math.min(...currentSelection.map(c => c[0]));
+        const rMax = Math.max(...currentSelection.map(c => c[0]));
+        const cMin = Math.min(...currentSelection.map(c => c[1]));
+        const cMax = Math.max(...currentSelection.map(c => c[1]));
         
         const x = cMin * CELL_SIZE;
         const y = rMin * CELL_SIZE;
@@ -125,15 +81,89 @@ function draw() {
     }
 }
 
+function updateScoreBoard(players) {
+    const scoreBoard = document.getElementById('score-board');
+    if (!scoreBoard) return;
 
-function startGame() {
-    const name = document.getElementById('username-input').value.trim();
-    const room = document.getElementById('room-input').value.trim();
-    if (!name || !room) return alert("Enter both name and room!");
-    document.getElementById('login-overlay').style.display = 'none';
-    socket.emit('join_game', { name: name, room: room });
+    scoreBoard.innerHTML = Object.entries(players)
+        .map(([sid, p]) => {
+            const isMe = (sid === mySid);
+            const displayName = isMe ? `${p.name} (You)` : p.name;
+            const activeClass = isMe ? 'style="color: #2e7d32; font-weight: 800;"' : '';
+            return `<span ${activeClass}>${displayName}: <b>${p.score}</b></span>`;
+        })
+        .join(" | ");
 }
 
+function updateTimerUI(secondsLeft) {
+    const timerBar = document.getElementById('timer-bar');
+    const timerText = document.getElementById('timer-text');
+    if (!timerBar || !timerText) return;
+
+    const min = Math.floor(secondsLeft / 60);
+    const sec = secondsLeft % 60;
+    timerText.textContent = `${min}:${sec < 10 ? '0' : ''}${sec}`;
+
+    const percentage = (secondsLeft / TOTAL_TIME) * 100;
+    timerBar.style.width = `${Math.max(0, percentage)}%`;
+
+    if (secondsLeft > 60) timerBar.style.backgroundColor = "#4CAF50";
+    else if (secondsLeft > 20) timerBar.style.backgroundColor = "#FF9800";
+    else timerBar.style.backgroundColor = "#f44336";
+
+    timerBar.classList.toggle('pulse-animation', secondsLeft <= 10);
+}
+
+function showSpectatorError() {
+    const alertBox = document.getElementById('interaction-alert');
+    if (alertBox) {
+        alertBox.innerText = "⚠️ You are spectating - wait for next round!";
+        alertBox.style.color = "red";
+    }
+}
+
+/** Game Flow  **/
+
+function showMenu(mode) {
+    const name = document.getElementById('username-input').value.trim();
+    if (!name) return alert("Please enter your name first!");
+
+    document.getElementById('initial-buttons').style.display = 'none';
+    document.getElementById('room-controls').style.display = 'flex';
+
+    isCreating = (mode === 'create');
+    const roomInput = document.getElementById('room-input');
+    const actionBtn = document.getElementById('action-button');
+    if (isCreating) {
+        isCreating = true;
+        roomInput.value = Math.floor(1000 + Math.random() * 9000).toString();
+        roomInput.readOnly = true;
+        actionBtn.innerText = "Create & Wait";
+    } else {
+        roomInput.value = "";
+        roomInput.readOnly = false;
+        actionBtn.innerText = "Join Game";
+    }
+}
+
+function resetMenu() {
+    document.getElementById('initial-buttons').style.display = 'block';
+    document.getElementById('room-controls').style.display = 'none';
+}
+
+function finalizeJoin() {
+    const name = document.getElementById('username-input').value;
+    roomCode = document.getElementById('room-input').value;
+    socket.emit('join_game', { name: name, room: roomCode, mode: isCreating ? 'create' : 'join' });
+}
+
+function sendStartSignal() {
+    if (roomCode) {
+        socket.emit('start_game_request', { room: roomCode });
+    } else {
+        console.error("No room code found to start game.");
+    }
+}
 
 function requestReset() {
     socket.emit('request_reset', { room: roomCode });
@@ -143,6 +173,13 @@ function requestReset() {
     if (lobby) {
         lobby.style.display = 'flex';
     }
+}
+
+
+function leaveRoom() {
+    const roomID = document.getElementById('display-room-code').innerText;
+    socket.emit('leave_game_request', { room: roomID });
+    location.reload();
 }
 
 function getEventPos(e) {
@@ -160,107 +197,47 @@ function getEventPos(e) {
     };
 }
 
-function startTimer(duration) {
-    let timer = Math.floor(duration); 
-    const totalTime = 120;
-    
-    const timerBar = document.getElementById('timer-bar');
-    const timerText = document.getElementById('timer-text');
-
-    if (gameInterval) {
-        clearInterval(gameInterval);
-        gameInterval = null; 
-    }
-    
-    updateTimerUI(timer, totalTime);
-    gameInterval = setInterval(() => {
-        timer--;
-
-        if (timer < 0) {
-            clearInterval(gameInterval);
-            gameInterval = null;
-            return;
-        }
-
-        updateTimerUI(timer, totalTime);
-    }, 1000); 
-}
 
 
-function updateTimerUI(secondsLeft) {
-    const timerBar = document.getElementById('timer-bar');
-    const timerText = document.getElementById('timer-text');
-    if (!timerBar || !timerText) return;
 
-    let min = Math.floor(secondsLeft / 60);
-    let sec = secondsLeft % 60;
-    timerText.textContent = `${min}:${sec < 10 ? '0' : ''}${sec}`;
-    let percentage = (secondsLeft / TOTAL_TIME) * 100;
-    timerBar.style.width = Math.max(0, percentage) + "%";
-    if (secondsLeft > 60) {
-        timerBar.style.backgroundColor = "#4CAF50"; // Green
-    } 
-    else if (secondsLeft <= 60 && secondsLeft > 20) {
-        timerBar.style.backgroundColor = "#FF9800"; // Orange
-    } 
-    else {
-        timerBar.style.backgroundColor = "#f44336"; // Red
-    }    
-    if (secondsLeft <= 10) {
-        timerBar.classList.add('pulse-animation');
-    } else {
-        timerBar.classList.remove('pulse-animation');
-    }
-}
+/** Socket Listeners **/
 
-
-function sendStartSignal() {
-    if (roomCode) {
-        socket.emit('start_game_request', { room: roomCode });
-    } else {
-        console.error("No room code found to start game.");
-    }
-}
-
-function showSpectatorError() {
-    const alertBox = document.getElementById('interaction-alert');
-    if (alertBox) {
-        alertBox.innerText = "⚠️ You are spectating - wait for next round!";
-        alertBox.style.color = "red";
-    }
-}
-
-function leaveRoom() {
-    const roomID = document.getElementById('display-room-code').innerText;
-    socket.emit('leave_game_request', { room: roomID });
-    location.reload();
-}
-
-
-socket.on('game_start_signal', (data) => {
-    isSpectator = data.is_spectator || false;
-
-    const alertBox = document.getElementById('interaction-alert');
-    if (alertBox) {
-        if (isSpectator) {
-            alertBox.innerText = "👀 You are spectating - wait for next round to play!";
-            alertBox.style.color = "#666"; // Gray for info, red for errors
-        } else {
-            alertBox.innerText = ""; // Clear it for active players
-            alertBox.style.display = 'none';
-        }
-    }
-    console.log("Game starting!");
-    document.getElementById('login-overlay').style.display = 'none';
-    document.getElementById('lobby-overlay').style.display = 'none';
-    document.getElementById('game-container').style.display = 'block';
-
-    board = data.board;
-    players = data.players; 
-    updateScoreBoard(data.players); 
-    draw();
+socket.on('connect', () => {
+    mySid = socket.id; 
+    console.log("Connected with SID:", mySid);
 });
 
+socket.on('update_lobby_list', (data) => {
+    roomCode = data.room;
+    document.getElementById('display-room-code').innerText = data.room;
+    document.getElementById('game-room-code').innerText = data.room;
+
+    const list = document.getElementById('player-names-list');
+    list.innerHTML = data.players.map(pName => {
+        const isReady = data.active_names?.includes(pName);
+        return `<li class="${isReady ? 'player-ready' : ''}">🍎 ${pName} ${isReady ? '(READY) ✓' : ''}</li>`;
+    }).join("");
+
+    document.getElementById('host-controls').style.display = data.is_host ? 'block' : 'none';
+    document.getElementById('guest-msg').style.display = data.is_host ? 'none' : 'block';
+
+    const gameActive = document.getElementById('game-container').style.display === 'block';
+    const gameOver = document.getElementById('game-over-overlay').style.display === 'flex';
+    if (!gameActive && !gameOver) switchScreen('lobby-overlay');
+});
+
+socket.on('game_start_signal', (data) => {
+    isSpectator = !!data.is_spectator;
+    const alertBox = document.getElementById('interaction-alert');
+    if (alertBox) {
+        alertBox.innerText = isSpectator ? "👀 Spectating - wait for next round!" : "";
+        alertBox.style.display = isSpectator ? 'block' : 'none';
+    }    
+    switchScreen('game-container');
+    board = data.board;
+    updateScoreBoard(data.players);
+    draw();
+});
 
 socket.on('update', (data) => {
     board = data.board;
@@ -268,65 +245,12 @@ socket.on('update', (data) => {
     draw();
 });
 
-
 socket.on('show_winner_screen', (data) => {
-    if (gameInterval) clearInterval(gameInterval);
-
-    document.getElementById('game-container').style.display = 'none';
-    const overlay = document.getElementById('game-over-overlay');
-    if (overlay) overlay.style.display = 'flex';
-
+    switchScreen('game-over-overlay');
     document.getElementById('game-over-room-code').innerText = roomCode;
-
     document.getElementById('winner-name').innerText = `Winner: ${data.winner_name}!`;
     document.getElementById('final-score-text').innerText = `Final Score: ${data.winner_score}`;
 });
-
-
-socket.on('update_lobby_list', (data) => {
-    console.log(data)
-    roomCode = data.room;
-    document.getElementById('display-room-code').innerText = data.room;
-    document.getElementById('game-room-code').innerText = data.room;
-
-    const list = document.getElementById('player-names-list');
-    list.innerHTML = "";
-    data.players.forEach(playerName => {
-        const li = document.createElement('li');
-        li.innerText = "🍎 " + playerName;
-        console.log(data.active_names, playerName)
-        if (data.active_names && data.active_names.includes(playerName)) {
-            li.classList.add('player-ready'); // Uses the CSS below
-            li.innerText += " (READY) ✓";
-        }
-        list.appendChild(li);
-    });
-    if (data.is_host === true) {
-        console.log("I am the host. Showing start button.");
-        document.getElementById('host-controls').style.display = 'block';
-        document.getElementById('guest-msg').style.display = 'none';
-    } else {
-        console.log("I am a guest. Showing waiting message.");
-        document.getElementById('host-controls').style.display = 'none';
-        document.getElementById('guest-msg').style.display = 'block';
-    }
-    const lobby = document.getElementById('lobby-overlay');
-    const login = document.getElementById('login-overlay');
-    const gameContainer = document.getElementById('game-container');
-    const gameOver = document.getElementById('game-over-overlay');
-    const isGameActive = gameContainer && gameContainer.style.display === 'block';
-    const isGameOver = gameOver && window.getComputedStyle(gameOver).display !== 'none';
-    if (isGameActive) {
-        if (lobby) lobby.style.display = 'none';
-        if (login) login.style.display = 'none';
-    } else if (isGameOver) {
-        if (lobby) lobby.style.display = 'none';
-    } else {
-        if (lobby) lobby.style.display = 'flex';
-        if (login) login.style.display = 'none';
-    }
-});
-
 
 socket.on('player_joined_next_round', (data) => {
     const readySpan = document.getElementById('ready-count');
@@ -335,11 +259,13 @@ socket.on('player_joined_next_round', (data) => {
     }
 });
 
-
 socket.on('timer_sync', (data) => {
     updateTimerUI(data.remaining); 
 });
 
+socket.on('manual_time_update', (data) => {
+    updateTimerUI(data.remaining);
+});
 
 socket.on('error_message', (data) => {
     const err = document.getElementById('error-display');
@@ -347,57 +273,17 @@ socket.on('error_message', (data) => {
     err.style.display = 'block';
 });
 
+/** Input Handlers **/
 
-canvas.addEventListener('mousedown', e => { 
-    isDragging = true; 
-    startCell = getEventPos(e); 
-});
-canvas.addEventListener('mousemove', e => {
+function handleMove(e) {
     if (!isDragging) return;
     const endCell = getEventPos(e);
     currentSelection = [];
+    
     const rStart = Math.max(0, Math.min(startCell.r, endCell.r));
     const rEnd = Math.min(board.length - 1, Math.max(startCell.r, endCell.r));
     const cStart = Math.max(0, Math.min(startCell.c, endCell.c));
     const cEnd = Math.min(board[0].length - 1, Math.max(startCell.c, endCell.c));
-    for (let r = rStart; r <= rEnd; r++) {
-        for (let c = cStart; c <= cEnd; c++) {
-            currentSelection.push([r, c]);
-        }
-    }
-    draw();
-});
-
-canvas.addEventListener('mouseup', () => {
-    if (isDragging && currentSelection.length > 0) {
-        if (isSpectator) {
-            showSpectatorError()
-        } else {
-            socket.emit('claim_box', { cells: currentSelection });
-        } 
-    }
-    isDragging = false;
-    currentSelection = [];
-    draw();
-});
-
-canvas.addEventListener('touchstart', function(e) {
-    e.preventDefault(); // Prevents the page from scrolling while playing
-    isDragging = true;
-    startCell = getEventPos(e);
-}, { passive: false });
-
-canvas.addEventListener('touchmove', function(e) {
-    e.preventDefault();
-    if (!isDragging) return;
-    
-    const endCell = getEventPos(e);
-    currentSelection = [];
-    
-    const rStart = Math.min(startCell.r, endCell.r);
-    const rEnd = Math.max(startCell.r, endCell.r);
-    const cStart = Math.min(startCell.c, endCell.c);
-    const cEnd = Math.max(startCell.c, endCell.c);
 
     for (let r = rStart; r <= rEnd; r++) {
         for (let c = cStart; c <= cEnd; c++) {
@@ -405,34 +291,30 @@ canvas.addEventListener('touchmove', function(e) {
         }
     }
     draw();
-}, { passive: false });
+}
 
-canvas.addEventListener('touchend', function(e) {
+function handleEnd() {
     if (isDragging && currentSelection.length > 0) {
         if (isSpectator) {
-            showSpectatorError()
+            const alertBox = document.getElementById('interaction-alert');
+            alertBox.innerText = "⚠️ Spectators cannot move!";
         } else {
-            socket.emit('claim_box', { cells: currentSelection });
+            socket.emit('claim_box', { room: roomCode, cells: currentSelection });
         }
     }
     isDragging = false;
     currentSelection = [];
     draw();
-});
+}
+
+canvas.addEventListener('mousedown', e => { isDragging = true; startCell = getEventPos(e); });
+canvas.addEventListener('mousemove', handleMove);
+window.addEventListener('mouseup', handleEnd);
+
+canvas.addEventListener('touchstart', e => { e.preventDefault(); isDragging = true; startCell = getEventPos(e); }, {passive: false});
+canvas.addEventListener('touchmove', e => { e.preventDefault(); handleMove(e); }, {passive: false});
+canvas.addEventListener('touchend', handleEnd);
 
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-        console.log("Tab regained focus. Requesting time sync...");
-        socket.emit('request_time_sync', { room: roomCode });
-    }
+    if (document.visibilityState === 'visible') socket.emit('request_time_sync', { room: roomCode });
 });
-
-socket.on('manual_time_update', (data) => {
-    updateTimerUI(data.remaining);
-});
-
-appleImg.onload = () => {
-    imageLoaded = true;
-    draw();
-};
-appleImg.src = '/static/apple.png';
